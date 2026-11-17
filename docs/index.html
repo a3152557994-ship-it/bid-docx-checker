@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>标书排雷王 BidGuard — 招投标 Word (.docx) 废标项 100% 本地离线交叉核验器</title>
+  <meta name="description" content="100% 浏览器本地内存解压核验，断网可用，标书底价与公章绝不出本机。精准排查人民币大小写金额不符、页眉页脚异地采购人串名、前后工期天数冲突、未填占位符、授权书签章缺失与资质证书过期 6 大废标雷区。" />
+  <link rel="canonical" href="https://a3152557994-ship-it.github.io/bid-docx-checker/" />
+  <meta property="og:title" content="标书排雷王 BidGuard — 100% 纯本地离线 Word (.docx) 废标核验器" />
+  <meta property="og:description" content="封标前 3 秒自检 6 大一票否决废标坑，纯浏览器 DecompressionStream 本地解压，标书绝不出本机。" />
+  <meta property="og:url" content="https://a3152557994-ship-it.github.io/bid-docx-checker/" />
+  <link rel="stylesheet" href="./style.css" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareApplication",
+        "name": "标书排雷王 BidGuard (bid-docx-checker)",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web (100% Client-Side Offline)",
+        "url": "https://a3152557994-ship-it.github.io/bid-docx-checker/",
+        "description": "100% browser-local .docx tender compliance verifier checking RMB uppercase/lowercase math parity, header/footer entity leaks, duration conflicts, unfilled placeholders, statutory signature anchors, and expired certificates.",
+        "offers": {
+          "@type": "Offer",
+          "price": "29.00",
+          "priceCurrency": "CNY",
+          "availability": "https://schema.org/InStock"
+        }
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "我的标书包含机密报价底表，拖入网页会上传到服务器吗？",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "绝对不会。BidGuard 采用纯浏览器原生二进制 ZIP 解析与 DecompressionStream 内存解压技术，零第三方依赖、零后端接口。您甚至可以在加载本页后直接拔掉网线或开启飞行模式完成全部标书排雷。"
+            }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <div class="privacy-ribbon">
+    🛡️ 军工级商业机密保护：100% 浏览器本地内存解压核验 · 支持断网运行 · 标书报价与公章绝不出本机
+    <span class="pill" id="proTopPill">免费体检模式</span>
+  </div>
+
+  <header class="hero container">
+    <div class="eyebrow">⚖️ 封标前最后一道防线 · 拯救数万元保证金与通宵心血</div>
+    <h1>标书排雷王 BidGuard — Word (<code>.docx</code>) 废标项离线交叉核验</h1>
+    <p>
+      熬夜改标书最怕「手滑复制旧模板」！纯本地毫秒级解压 <code>word/document.xml</code> 与全部页眉页脚，精准交叉核验<strong>人民币大小写换算、异地采购人串名、工期天数矛盾、漏填占位符、签章锚点缺失、资质过期</strong>六大致命废标项。
+    </p>
+    <div class="airgap-banner">
+      🔒 郑重承诺：100% 浏览器本地内存解压核验，断网可用，标书绝不出本机！（可打开浏览器 F12 Network 面板亲自验证：零字节上传）
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="grid-top">
+      <!-- Dropzone Card -->
+      <section class="card" aria-labelledby="uploadTitle">
+        <h2 style="margin:0 0 0.9rem;font-size:1.1rem;" id="uploadTitle">1. 拖入本地投标文件 (<code>.docx</code>) 或体验真实踩坑样本</h2>
+
+        <div class="dropzone" id="dropzone">
+          <div style="font-size:2.2rem;margin-bottom:0.4rem;">📄</div>
+          <div style="font-weight:700;font-size:1rem;margin-bottom:0.25rem;">点击选择或直接将投标书 <code>.docx</code> 拖入此处</div>
+          <div style="font-size:0.82rem;color:#64748b;">纯本地解析 ZIP 二进制流与 XML（请使用标准 .docx 格式）</div>
+          <input type="file" id="docxInput" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none;" />
+        </div>
+
+        <div style="display:flex;flex-wrap:wrap;gap:0.55rem;margin-top:0.9rem;">
+          <button type="button" class="btn btn-primary" id="loadSampleBtn" style="flex:1;">
+            ⚡ 一键加载内置「含 6 处隐蔽废标坑」真实示例 .docx
+          </button>
+          <button type="button" class="btn" id="downloadSampleBtn" title="下载该二进制 .docx 用 Word 打开亲自对照">
+            ⬇️ 下载示例 .docx
+          </button>
+        </div>
+
+        <div id="fileStatusBadge" style="margin-top:0.7rem;font-size:0.8rem;color:#059669;font-weight:600;"></div>
+      </section>
+
+      <!-- Project Metadata Cross-Check Parameters -->
+      <section class="card" aria-labelledby="metaTitle">
+        <h2 style="margin:0 0 0.9rem;font-size:1.1rem;" id="metaTitle">2. 本次投标核对基准（用于自动抓页眉/正文串名与过期证书）</h2>
+
+        <div class="field">
+          <label for="expectedProjectName">本次招标项目全称（核验页眉/正文是否残留上个项目名）</label>
+          <input type="text" id="expectedProjectName" placeholder="例如：2026年杭州滨江智慧园区安防升级采购项目" />
+        </div>
+
+        <div class="field-grid">
+          <div class="field">
+            <label for="expectedPurchaser">本次招标人 / 采购人名称</label>
+            <input type="text" id="expectedPurchaser" placeholder="例如：杭州滨江智慧园区管理委员会" />
+          </div>
+          <div class="field">
+            <label for="expectedBidder">本次投标人（我方单位）名称</label>
+            <input type="text" id="expectedBidder" placeholder="例如：浙江数智安防科技有限公司" />
+          </div>
+        </div>
+
+        <div class="field-grid" style="align-items:end;">
+          <div class="field" style="margin-bottom:0;">
+            <label for="bidDate">开标基准日期（早于该日的证书自动标红）</label>
+            <input type="date" id="bidDate" />
+          </div>
+          <button type="button" class="btn btn-primary" id="reAuditBtn" style="height:40px;">
+            🔍 重新交叉核验标书
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <!-- Live Audit Report Output -->
+    <div id="reportContainer" aria-live="polite"></div>
+
+    <!-- Pro Pricing & Offline WebCrypto Activation -->
+    <section class="pro-section" id="proSection">
+      <div>
+        <div class="eyebrow" style="background:rgba(59,130,246,0.2);color:#93c5fd;">🛡️ 一次排雷挽回数十万中标机会</div>
+        <h2 style="margin:0 0 0.55rem;font-size:1.5rem;">解锁「标书排雷王 BidGuard」完整专业版</h2>
+        <p style="margin:0 0 0.85rem;color:#cbd5e1;font-size:0.93rem;">
+          免费版实时展示废标风险总数、六大雷区分布与前 2 处精确原句定位；解锁 Pro 立享：
+        </p>
+        <ul style="margin:0 0 1rem;padding-left:1.2rem;color:#e2e8f0;font-size:0.9rem;">
+          <li><strong>¥29 单次封标救急卡</strong>（7 天内不限次修改复核） · <strong>¥99 企业永久买断版</strong>（本机无限期离线使用）</li>
+          <li>完整展示<strong>全部废标风险精确段落 / 页眉页脚 / 表格行原句</strong>与差额测算</li>
+          <li>一键导出<strong>《开标前废标风险逐项清零核对单》</strong>（支持打印签字归档复核）</li>
+        </ul>
+        <div style="font-size:0.86rem;color:#94a3b8;">
+          📩 获取 <code>OPC1.</code> 激活码请联系：<strong style="color:#fff;">3152557994@qq.com</strong> 或 <strong style="color:#fff;">a3152557994@gmail.com</strong>（备注「标书排雷王救急」或「永久版」，秒发离线激活码）。
+        </div>
+      </div>
+
+      <div class="license-card">
+        <label for="licenseInput" style="display:block;font-weight:700;font-size:0.9rem;margin-bottom:0.5rem;">
+          🔑 输入 OPC1 激活码（本地 WebCrypto 离线验签）
+        </label>
+        <input type="text" id="licenseInput" placeholder="OPC1.eyJ2IjoxLCJwIjoiYmlkLWRvY3gtY2hlY2tlciJ9..." autocomplete="off" />
+        <button type="button" class="btn btn-primary" id="activateBtn" style="width:100%;padding:0.75rem;">立即验证并查看全部废标定位</button>
+        <div id="licenseStatus" style="font-size:0.82rem;margin-top:0.5rem;" aria-live="polite"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer container">
+    <p>
+      <strong>标书排雷王 BidGuard</strong> · 100% Pure-Local <code>.docx</code> Disqualification Auditor ·
+      <a href="./llms.txt" style="color:#1d4ed8;">llms.txt</a> ·
+      <a href="https://github.com/a3152557994-ship-it/bid-docx-checker" style="color:#1d4ed8;">GitHub</a>
+    </p>
+  </footer>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

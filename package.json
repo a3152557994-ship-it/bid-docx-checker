@@ -1,0 +1,23 @@
+{
+  "name": "bid-docx-checker",
+  "version": "1.0.0",
+  "description": "BidGuard (标书排雷王) — 100% Offline Pure-JS .docx Tender Disqualification Cross-Verifier.",
+  "type": "module",
+  "main": "./src/docx-auditor.mjs",
+  "exports": {
+    ".": "./src/docx-auditor.mjs"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "keywords": [
+    "docx",
+    "tender",
+    "bidding",
+    "compliance",
+    "offline-first",
+    "zip-parser",
+    "rmb-uppercase"
+  ],
+  "license": "MIT"
+}
