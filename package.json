@@ -1,7 +1,7 @@
 {
   "name": "bid-docx-checker",
-  "version": "1.0.0",
-  "description": "BidGuard (标书排雷王) — 100% Offline Pure-JS .docx Tender Disqualification Cross-Verifier.",
+  "version": "2.0.0",
+  "description": "BidGuard Pro v2.0 (标书排雷王) — Pure-JS .docx Tender Disqualification & Mandatory ★ Rubric Cross-Verifier (Offline Web + Cloudflare Worker API / Coze / Alipay Tbox MCP).",
   "type": "module",
   "main": "./src/docx-auditor.mjs",
   "exports": {

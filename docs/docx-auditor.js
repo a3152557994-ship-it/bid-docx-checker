@@ -930,16 +930,183 @@ export function auditSegments(segments, options = {}) {
 }
 
 /**
+ * Convert plain pasted / OCR tender text into structured segments so text-only
+ * Coze / Alipay Tbox workflows share the exact same deterministic 6-minefield engine.
+ */
+export function parsePlainTextSegments(rawText) {
+  const normalized = String(rawText || "").replace(/\r\n?/g, "\n");
+  const lines = normalized
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  return lines.map((text, idx) => {
+    const isHeader = /^(?:页眉|Header)[：:\s]/i.test(text);
+    const isFooter = /^(?:页脚|Footer)[：:\s]/i.test(text);
+    return {
+      source: isHeader ? "header" : isFooter ? "footer" : "paragraph",
+      entryName: isHeader ? "plain/header" : isFooter ? "plain/footer" : "plain/text",
+      location: isHeader
+        ? `页眉文本 第 ${idx + 1} 行`
+        : isFooter
+          ? `页脚文本 第 ${idx + 1} 行`
+          : `文本第 ${idx + 1} 段`,
+      text,
+    };
+  });
+}
+
+const RUBRIC_STOPWORDS = new Set([
+  "要求", "提供", "具备", "符合", "满足", "投标人", "响应", "不少于", "不低于",
+  "不得", "需要", "应当", "必须", "文件", "内容", "相关", "进行", "以及", "承诺",
+  "服务", "项目", "说明", "材料", "证明", "有效", "情况", "以上", "以内",
+]);
+
+function extractRubricAnchors(clauseText) {
+  const cleaned = String(clauseText || "").replace(/^[★*▲●•\d.、()（）\s]+/, "").trim();
+  const anchors = [];
+  const seen = new Set();
+  const push = (t) => {
+    const val = String(t || "").trim();
+    if (!val || seen.has(val) || RUBRIC_STOPWORDS.has(val)) return;
+    seen.add(val);
+    anchors.push(val);
+  };
+
+  // Priority 1: Explicit certifications / standards / numbers with units (ISO27001, 3年, 2小时, 7×24, 99.9%)
+  const specMatches =
+    cleaned.match(/(?:ISO\s*\d+|CMMI\s*\d|等保[二三四]级|7\s*[×xX*]\s*24|\d+(?:\.\d+)?\s*(?:个?日历天|工作日|小时|分钟|年|个月|万元|元|%|名|人|台|套))/gi) ||
+    [];
+  for (const m of specMatches) push(m.replace(/\s+/g, ""));
+
+  // Priority 2: Quoted terms or key technical nouns
+  const quoted = [...cleaned.matchAll(/[《「“"【]([^》」”"】]{2,20})[》」”"】]/g)].map((m) => m[1]);
+  for (const q of quoted) push(q);
+
+  // Priority 3: Meaningful Chinese/English core phrases split by punctuation
+  const chunks = cleaned
+    .split(/[，,。；;：:（）()、\s/]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 2);
+  for (const ch of chunks) {
+    if (ch.length <= 8) {
+      push(ch);
+    } else {
+      // Extract 2-4 char domain stems (e.g. 质保期、驻场响应、类似业绩、安全生产许可证、项目经理)
+      const domainHits =
+        ch.match(/(?:质保期?|保修期?|驻场|响应时间|售后服务|类似业绩|业绩合同|安全生?产?许可证|项目经理|社保|授权委托书|营业执照|财务审计|信用中国|无重大违法|违约责任|保密协议|应急预案|培训方案|验收标准|交货期|工期|付款方式)/g) ||
+        [];
+      for (const h of domainHits) push(h);
+      if (domainHits.length === 0) {
+        push(ch.slice(0, 4));
+      }
+    }
+  }
+  return anchors.slice(0, 6);
+}
+
+/**
+ * M7: Cross-check mandatory ★ clauses & tender scoring rubric items against all bid segments.
+ */
+export function auditRubricCompliance(segments, rubricItems = []) {
+  const rawList = Array.isArray(rubricItems)
+    ? rubricItems
+    : String(rubricItems || "")
+        .split(/\r?\n|[；;]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+  const items = rawList.map((s) => String(s || "").trim()).filter(Boolean);
+  if (items.length === 0) {
+    return {
+      totalClauses: 0,
+      matchedCount: 0,
+      missingCount: 0,
+      fatalMissingCount: 0,
+      complianceRate: 100,
+      results: [],
+    };
+  }
+
+  const results = items.map((clause, idx) => {
+    const isMandatoryStar = /^[★*▲]|实质性|一票否决|废标/.test(clause);
+    const anchors = extractRubricAnchors(clause);
+    let bestSeg = null;
+    let bestHits = [];
+
+    for (const seg of segments) {
+      const compactSeg = seg.text.replace(/\s+/g, "").toLowerCase();
+      const hits = anchors.filter((a) => compactSeg.includes(a.replace(/\s+/g, "").toLowerCase()));
+      if (hits.length > bestHits.length) {
+        bestHits = hits;
+        bestSeg = seg;
+      }
+    }
+
+    const requiredHits = anchors.length >= 3 ? 2 : 1;
+    const matched = anchors.length > 0 && bestHits.length >= requiredHits;
+
+    return {
+      index: idx + 1,
+      clause,
+      isMandatoryStar,
+      status: matched ? "matched" : "missing",
+      severity: !matched && isMandatoryStar ? "fatal" : !matched ? "high" : "clean",
+      anchorsChecked: anchors,
+      matchedAnchors: bestHits,
+      evidenceLocation: matched && bestSeg ? bestSeg.location : null,
+      evidenceExcerpt: matched && bestSeg ? bestSeg.text.slice(0, 140) : null,
+      fixAction: matched
+        ? "已检测到对应响应段落，建议核对数值与招标要求完全一致并保留正偏离表述。"
+        : isMandatoryStar
+          ? "⚠️ 属于 ★ 实质性条款且未检出完整响应！请立即在《商务/技术偏离表》及正文对应章节逐字响应，否则开标直接废标。"
+          : "未检出明显评分点响应，建议对照评标办法逐项补充证明材料与承诺段落避免失分。",
+    };
+  });
+
+  const matchedCount = results.filter((r) => r.status === "matched").length;
+  const missingCount = results.length - matchedCount;
+  const fatalMissingCount = results.filter((r) => r.status === "missing" && r.isMandatoryStar).length;
+  const complianceRate = Number(((matchedCount / results.length) * 100).toFixed(1));
+
+  return {
+    totalClauses: results.length,
+    matchedCount,
+    missingCount,
+    fatalMissingCount,
+    complianceRate,
+    results,
+  };
+}
+
+/**
  * End-to-end binary .docx auditor (Browser File/ArrayBuffer or Node Buffer -> full compliance report).
  */
 export async function auditDocxBuffer(binaryInput, options = {}) {
   const extracted = await extractDocxXmlEntries(binaryInput, options);
   const segments = parseWordXmlSegments(extracted.xmlFiles);
   const audit = auditSegments(segments, options);
+  const rubric = auditRubricCompliance(segments, options.rubricItems || []);
   return {
     ...audit,
+    rubricAudit: rubric.totalClauses > 0 ? rubric : undefined,
     archiveEntryCount: extracted.entryCount,
     scannedXmlParts: Object.keys(extracted.xmlFiles),
+  };
+}
+
+/**
+ * End-to-end plain text / OCR tender auditor (for Coze / Alipay Tbox chat & OCR pipelines).
+ */
+export function auditPlainText(rawText, options = {}) {
+  const segments = parsePlainTextSegments(rawText);
+  const audit = auditSegments(segments, options);
+  const rubric = auditRubricCompliance(segments, options.rubricItems || []);
+  return {
+    ...audit,
+    rubricAudit: rubric.totalClauses > 0 ? rubric : undefined,
+    archiveEntryCount: 0,
+    scannedXmlParts: ["plain/text"],
   };
 }
 
@@ -960,9 +1127,9 @@ export function exportClearanceChecklist(report) {
     `# 《开标前废标风险逐项清零核对单》（BidGuard 标书排雷王生成）`,
     ``,
     `- **核验基准开标日**：${report.bidDate}`,
-    `- **扫描 XML 部件**：${(report.scannedXmlParts || ["word/document.xml"]).join(", ")}`,
+    `- **扫描部件**：${(report.scannedXmlParts || ["word/document.xml"]).join(", ")}`,
     `- **安全健康分**：${report.safetyScore} / 100 · **检出风险总数**：${report.totalIssueCount} 项（其中一票否决致命项 ${report.fatalCount} 项）`,
-    `- **隐私声明**：本核对单由浏览器本地内存离线生成，标书全文零字节上传网络。`,
+    `- **隐私声明**：纯内存解析生成，标书全文零字节落盘留存。`,
     ``,
     `---`,
     ``,
@@ -984,6 +1151,21 @@ export function exportClearanceChecklist(report) {
           ``,
         ])),
   ];
+
+  if (report.rubricAudit && report.rubricAudit.totalClauses > 0) {
+    lines.push(`## 三、招标实质性条款（★）/ 评分细则核对表（响应率 ${report.rubricAudit.complianceRate}%）`);
+    lines.push(``);
+    for (const r of report.rubricAudit.results) {
+      const badge = r.status === "matched" ? "✅ 已响应" : r.isMandatoryStar ? "🚨 漏答(★废标项)" : "❌ 疑似漏答";
+      lines.push(`- ${badge} **条款 #${r.index}**：${r.clause}`);
+      if (r.evidenceLocation) {
+        lines.push(`  - 命中定位：\`${r.evidenceLocation}\` — ${r.evidenceExcerpt}`);
+      } else {
+        lines.push(`  - 整改建议：${r.fixAction}`);
+      }
+    }
+    lines.push(``);
+  }
 
   return {
     allowed: true,

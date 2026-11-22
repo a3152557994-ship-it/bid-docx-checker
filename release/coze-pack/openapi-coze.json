@@ -1,0 +1,124 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "标书排雷王 BidGuard Pro 招投标废标项确定性核验 API",
+    "description": "专为中国政府采购与工程招投标打造的确定性标书排雷插件。穿透 Word(.docx) 正文、页眉、页脚与报价表格，精确换算人民币大小写分位差额、排查串名/工期冲突/占位符/签章缺失/资质过期，并核对招标★星号实质性条款漏项。纯内存解析，零字节落盘。",
+    "version": "2.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://bidguard-pro-api.a3152557994.workers.dev"
+    }
+  ],
+  "paths": {
+    "/api/v1/audit-docx": {
+      "post": {
+        "operationId": "auditBidDocument",
+        "summary": "标书废标项六大雷区 + 评分条款全量交叉排雷",
+        "description": "传入用户上传的 .docx 标书临时 HTTPS 链接（docx_url）或纯文本段落（tender_text），自动执行人民币大小写精确分位换算、页眉页脚串名检测、工期冲突检测、占位符扫描、法定签章锚点检测、资质过期预警及★条款核对。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "docx_url": {
+                    "type": "string",
+                    "description": "用户上传 .docx 标书后生成的公网 HTTPS 下载链接（与 tender_text 二选一）"
+                  },
+                  "docx_base64": {
+                    "type": "string",
+                    "description": "可选：.docx 文件 Base64 编码内容"
+                  },
+                  "tender_text": {
+                    "type": "string",
+                    "description": "可选：标书正文/报价函/资质页纯文本或 OCR 识别文本（与 docx_url 二选一）"
+                  },
+                  "bid_date": {
+                    "type": "string",
+                    "description": "开标日期基准，格式 YYYY-MM-DD（用于判定企业资质证书是否已过期），如 2026-11-30"
+                  },
+                  "expected_purchaser": {
+                    "type": "string",
+                    "description": "本次招标的正确采购人/招标人全称（用于揪出页眉页脚旧标书串名）"
+                  },
+                  "expected_bidder": {
+                    "type": "string",
+                    "description": "本次投标人本公司全称"
+                  },
+                  "expected_project_name": {
+                    "type": "string",
+                    "description": "本次招标的正确项目全称"
+                  },
+                  "rubric_items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "可选：招标文件要求逐条响应的 ★ 实质性条款或评分细则列表"
+                  },
+                  "license_key": {
+                    "type": "string",
+                    "description": "可选：Pro 激活码（OPC1. 开头）；留空则返回免费体验体检报告（含前2处精确定位与剩余隐藏雷区计数）"
+                  },
+                  "paid_order_verified": {
+                    "type": "boolean",
+                    "description": "仅由扣子/支付宝支付工作流验单通过后传入 true（需配 X-Plugin-Secret）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回确定性标书排雷体检报告、安全分、致命废标明细及可选《开标前逐项清零核对单》"
+          }
+        }
+      }
+    },
+    "/api/v1/rubric-check": {
+      "post": {
+        "operationId": "auditBidRubric",
+        "summary": "招标文件 ★ 实质性星号条款与评分细则漏项核对",
+        "description": "专门核对投标文件是否漏答招标文件规定的 ★ 一票否决实质性条款与高分评标点。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "rubric_items"
+                ],
+                "properties": {
+                  "docx_url": {
+                    "type": "string",
+                    "description": "投标文件 .docx 公网 HTTPS 链接"
+                  },
+                  "tender_text": {
+                    "type": "string",
+                    "description": "投标文件纯文本（与 docx_url 二选一）"
+                  },
+                  "rubric_items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "招标文件要求核对的 ★ 实质性条款或评分细则数组"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "逐条响应核对结果与漏项预警"
+          }
+        }
+      }
+    }
+  }
+}

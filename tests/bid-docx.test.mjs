@@ -233,3 +233,128 @@ test("Ed25519 OPC1 license verification works for bid-docx-checker and wildcard 
     assert.equal(txt.includes("/Users/"), false, `Unexpected local path leak in ${rel}`);
   }
 });
+
+test("M7 rubric compliance & plain text auditor detect mandatory ★ misses and matched evidence", async () => {
+  const { auditPlainText } = await import("../src/docx-auditor.mjs");
+  const sampleText = [
+    "页眉：宁波市鄞州区政务云扩容项目投标文件",
+    "一、投标函",
+    "致：杭州滨江智慧园区管理委员会：投标总价人民币大写：壹佰贰拾捌万元整（小写：¥1,208,000.00）。",
+    "商务承诺：提供 7×24 小时驻场响应，免费质保期 3 年，并附 ISO27001 体系认证证书。",
+    "投标人（盖章）：浙江数智安防科技有限公司  法定代表人签字：王明",
+  ].join("\n");
+
+  const report = auditPlainText(sampleText, {
+    ...DEFAULT_SAMPLE_META,
+    isPro: true,
+    rubricItems: [
+      "★ 必须提供 7×24 小时驻场响应及 3 年免费质保",
+      "★ 必须提供近三年类似安防业绩合同及项目经理社保证明",
+    ],
+  });
+
+  assert.ok(report.totalIssueCount >= 2); // M1 mismatch + M2 header leak + M5 missing auth
+  assert.equal(report.rubricAudit.totalClauses, 2);
+  assert.equal(report.rubricAudit.matchedCount, 1);
+  assert.equal(report.rubricAudit.fatalMissingCount, 1);
+  const checklist = exportClearanceChecklist(report);
+  assert.match(checklist.markdown, /招标实质性条款（★）/);
+});
+
+test("BidGuard Cloudflare Worker API + MCP + SSRF protection + Coze/Alipay paywall unlock", async () => {
+  const workerMod = await import("../worker/index.mjs");
+  const worker = workerMod.default;
+  const sampleBytes = await buildSampleTrapDocxBuffer();
+  const sampleB64 = Buffer.from(sampleBytes).toString("base64");
+
+  // 1. OpenAPI schema endpoint
+  const oaRes = await worker.fetch(new Request("https://bidguard.example.workers.dev/openapi.json"), {});
+  assert.equal(oaRes.status, 200);
+  const oaJson = await oaRes.json();
+  assert.equal(oaJson.openapi, "3.0.1");
+  assert.ok(oaJson.paths["/api/v1/audit-docx"]);
+
+  // 2. Free preview on Base64 .docx caps visibleIssues at 2 and reports hiddenCount > 0
+  const freeRes = await worker.fetch(
+    new Request("https://bidguard.example.workers.dev/api/v1/audit-docx", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        docx_base64: sampleB64,
+        bid_date: DEFAULT_SAMPLE_META.bidDate,
+        expected_purchaser: DEFAULT_SAMPLE_META.expectedPurchaser,
+        expected_bidder: DEFAULT_SAMPLE_META.expectedBidder,
+        expected_project_name: DEFAULT_SAMPLE_META.expectedProjectName,
+      }),
+    }),
+    {},
+  );
+  assert.equal(freeRes.status, 200);
+  const freeJson = await freeRes.json();
+  assert.equal(freeJson.tier, "free_preview");
+  assert.equal(freeJson.report.visibleIssues.length, 2);
+  assert.ok(freeJson.report.hiddenCount > 0);
+  assert.equal(freeJson.clearanceChecklistMarkdown, null);
+
+  // 3. Trusted Coze/Alipay workflow header unlocks Pro checklist
+  const paidRes = await worker.fetch(
+    new Request("https://bidguard.example.workers.dev/api/v1/audit-docx", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Plugin-Secret": "sec_coze_123" },
+      body: JSON.stringify({
+        docx_base64: sampleB64,
+        bid_date: DEFAULT_SAMPLE_META.bidDate,
+        expected_purchaser: DEFAULT_SAMPLE_META.expectedPurchaser,
+        expected_bidder: DEFAULT_SAMPLE_META.expectedBidder,
+        expected_project_name: DEFAULT_SAMPLE_META.expectedProjectName,
+        paid_order_verified: true,
+      }),
+    }),
+    { PLUGIN_SHARED_SECRET: "sec_coze_123" },
+  );
+  const paidJson = await paidRes.json();
+  assert.equal(paidJson.tier, "pro");
+  assert.match(paidJson.clearanceChecklistMarkdown, /开标前废标风险逐项清零核对单/);
+
+  // 4. SSRF protection blocks localhost/internal docx_url
+  const ssrfRes = await worker.fetch(
+    new Request("https://bidguard.example.workers.dev/api/v1/audit-docx", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ docx_url: "http://127.0.0.1:8080/secret.docx" }),
+    }),
+    {},
+  );
+  assert.equal(ssrfRes.status, 400);
+
+  // 5. MCP Streamable HTTP tools/list + tools/call
+  const mcpRes = await worker.fetch(
+    new Request("https://bidguard.example.workers.dev/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    }),
+    {},
+  );
+  const mcpJson = await mcpRes.json();
+  assert.equal(mcpJson.result.tools[0].name, "audit_bid_document");
+  assert.equal(mcpJson.result.tools[0].annotations.readOnlyHint, true);
+});
+
+test("Standalone zero-API-key Coze code node (coze-code-node.js) executes cleanly", async () => {
+  const { main } = await import("../release/coze-pack/coze-code-node.js");
+  const out = await main({
+    params: {
+      tender_text:
+        "一、投标函\n人民币大写：壹佰贰拾捌万元整（小写：¥1,208,000.00）\n总工期90日历天\n施工进度总工期60日历天\n联系人：XXX\n安全生产许可证有效期至2025年12月31日。",
+      bid_date: "2026-11-22",
+      rubric_text: "★ 必须提供 7×24 驻场服务\n★ 提供近三年业绩合同",
+      is_pro: false,
+    },
+  });
+  assert.ok(out.total_issue_count >= 4);
+  assert.equal(out.visible_issues.length, 2);
+  assert.ok(out.hidden_count >= 2);
+  assert.equal(out.rubric_missing_count, 2);
+  assert.match(out.paywall_hint, /解锁 Pro/);
+});

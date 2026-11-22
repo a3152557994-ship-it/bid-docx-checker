@@ -1,16 +1,19 @@
-# 标书排雷王 BidGuard (bid-docx-checker)
+# 标书排雷王 BidGuard Pro v2.0 (bid-docx-checker)
 
-> 100% Pure-Local Offline Word (`.docx`) Tender Disqualification Cross-Verifier. Parses binary `.docx` ZIP archives and decompresses `word/document.xml`, `word/header*.xml`, and `word/footer*.xml` directly in browser memory via `DecompressionStream('deflate-raw')` with zero server uploads.
+> Pure-JS Word (`.docx`) Tender Disqualification & Mandatory `★` Rubric Cross-Verifier. Works 100% offline in browser via `DecompressionStream('deflate-raw')` AND as a remote OpenAPI / Streamable HTTP MCP plugin for Coze (扣子) and Alipay Tbox (支付宝百宝箱).
 
 - Canonical URL: https://a3152557994-ship-it.github.io/bid-docx-checker/
+- Live OpenAPI Spec (Coze / Alipay Tbox): https://bidguard-pro-api.a3152557994.workers.dev/openapi.json
+- Live Remote MCP Endpoint: https://bidguard-pro-api.a3152557994.workers.dev/mcp
 - Repository: https://github.com/a3152557994-ship-it/bid-docx-checker
-- Pricing: Free total risk count + first 2 exact paragraph findings; ¥29 CNY Emergency 7-Day Pass / ¥99 CNY Lifetime Buyout (`OPC1.` offline Ed25519 activation).
+- Pricing: Free total risk count + first 2 exact paragraph findings; ¥9.9/run (Alipay/Coze Agent) | ¥29 CNY Emergency 7-Day Pass / ¥99 CNY Lifetime Buyout (`OPC1.` offline Ed25519 activation).
 - Contact: 3152557994@qq.com / a3152557994@gmail.com
 
-## 6 Fatal Tender Disqualification Minefields Audited
+## 7 Fatal Tender Disqualification Minefields Audited
 1. **RMB Uppercase vs. Lowercase Amount Parity**: Exact cent-level mathematical comparison between Chinese financial numerals (`壹贰叁肆伍陆柒捌玖拾佰仟万亿圆元角分整正`) and numeric figures (`¥1,280,000.00`) in paragraphs and `<w:tr>` table rows.
 2. **Header / Footer / Body Entity Leak**: Detects leftover historical project names, foreign government purchasers, or rival company names across `word/header*.xml`, `word/footer*.xml`, and body text.
 3. **Duration & Calendar-Day Conflicts**: Flags contradictions across sections (e.g., `90 日历天` vs `60 日历天`) and start-to-completion date math mismatches.
 4. **Unfilled Template Placeholders**: Catches `XXX`, `【待填】`, `____`, `（请填写）`, and `202X年`.
 5. **Missing Statutory Signature & Seal Anchors**: Verifies presence of Bid Letter (`投标函`), Legal Representative Power of Attorney (`法定代表人授权委托书`), Price Schedule (`开标一览表`), corporate seal, and signature anchors.
 6. **Expired Qualification & Certificate Dates**: Flags safety licenses or ISO certificates expiring prior to the target bid opening date.
+7. **Mandatory `★` Rubric & Tender Scoring Cross-Check (v2.0)**: Parses mandatory `★` / `▲` clauses and scoring points from the tender document and cross-checks response coverage inside the bid file.

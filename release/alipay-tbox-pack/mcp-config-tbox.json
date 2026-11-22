@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "bidguard-pro": {
+      "transport": "streamable-http",
+      "url": "https://bidguard-pro-api.a3152557994.workers.dev/mcp",
+      "headers": {
+        "Content-Type": "application/json"
+      }
+    }
+  }
+}

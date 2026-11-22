@@ -1,0 +1,8 @@
+{
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "latest",
+    "vite": "latest"
+  }
+}
