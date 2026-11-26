@@ -6,7 +6,7 @@
 - Live OpenAPI Spec (Coze / Alipay Tbox): https://bidguard-pro-api.a3152557994.workers.dev/openapi.json
 - Live Remote MCP Endpoint: https://bidguard-pro-api.a3152557994.workers.dev/mcp
 - Repository: https://github.com/a3152557994-ship-it/bid-docx-checker
-- Pricing: Free total risk count + first 2 exact paragraph findings; ¥9.9/run (Alipay/Coze Agent) | ¥29 CNY Emergency 7-Day Pass / ¥99 CNY Lifetime Buyout (`OPC1.` offline Ed25519 activation).
+- Pricing: Free total risk count + first 2 exact paragraph findings; ¥19.9 Single Emergency Pass / ¥59 Lifetime Buyout (`OPC1.` offline Ed25519 activation, unified across Web, Worker API & Coze).
 - Contact: 3152557994@qq.com / a3152557994@gmail.com
 
 ## 7 Fatal Tender Disqualification Minefields Audited

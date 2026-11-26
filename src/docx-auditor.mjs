@@ -604,6 +604,119 @@ function parseChineseDateToUtcMs(dateStr) {
   return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 }
 
+function pairRmbUpperAndLower(text, isTableRow = false) {
+  const rmbUpperRegex = /(?:人民币)?(?:大写金额|大写|合计大写|总价大写|报价大写)?[：:\s]*([零〇壹贰貳叁參肆伍陆陸柒捌玖拾佰仟万萬亿億]+[圆元][零〇壹贰貳叁參肆伍陆陸柒捌玖角分整正]*)/g;
+  const rmbLowerRegex = /(?:[¥￥]\s*[0-9][0-9,]*(?:\.[0-9]{1,6})?\s*(?:万元|万|元)?|小写[：:\s]*[¥￥]?\s*[0-9][0-9,]*(?:\.[0-9]{1,6})?\s*(?:万元|万|元)?|[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,6})?\s*(?:万元|万|元)?|[0-9]+(?:\.[0-9]{1,6})?\s*(?:万元|元))/g;
+
+  const uppers = [];
+  for (const m of text.matchAll(rmbUpperRegex)) {
+    const raw = m[1];
+    const cents = parseChineseRmbToCents(raw);
+    if (cents !== null) {
+      uppers.push({
+        raw,
+        full: m[0],
+        start: m.index,
+        end: m.index + m[0].length,
+        cents,
+        used: false,
+      });
+    }
+  }
+
+  const lowers = [];
+  for (const m of text.matchAll(rmbLowerRegex)) {
+    const raw = m[0];
+    const start = m.index;
+    const end = start + raw.length;
+    // Skip if overlapping an uppercase match
+    if (uppers.some((u) => start < u.end && end > u.start)) continue;
+    const cents = parseNumericRmbToCents(raw);
+    if (cents !== null) {
+      lowers.push({ raw, start, end, cents, used: false });
+    }
+  }
+
+  const pairs = [];
+
+  // Pass 1: Adjacent parentheses / brackets pairing — e.g. 肆拾捌万元（480,000元） or ¥480,000.00（大写：肆拾捌万元整）
+  for (const u of uppers) {
+    if (u.used) continue;
+    for (const l of lowers) {
+      if (l.used) continue;
+      if (l.start >= u.end) {
+        const between = text.slice(u.end, l.start);
+        const after = text.slice(l.end, l.end + 6);
+        if (/^\s*[（(【\[]\s*(?:人民币|小写金额|小写|RMB|[：:\s])*$/i.test(between) && /^\s*[)）】\]]/.test(after)) {
+          u.used = true;
+          l.used = true;
+          pairs.push({ u, l });
+          break;
+        }
+      } else if (u.start >= l.end) {
+        const between = text.slice(l.end, u.start);
+        const after = text.slice(u.end, u.end + 6);
+        if (/^\s*[（(【\[]\s*(?:人民币|大写金额|大写|[：:\s])*$/i.test(between) && /^\s*[)）】\]]/.test(after)) {
+          u.used = true;
+          l.used = true;
+          pairs.push({ u, l });
+          break;
+        }
+      }
+    }
+  }
+
+  const hasBudgetRole = (ctx) => /(?:预算|最高限价|限价|控制价|拦标价|保证金)/.test(ctx);
+  const hasBidRole = (ctx) => /(?:投标报价|我方报价|总报价|投标总价|报价合计|报价为|总价为)/.test(ctx);
+
+  // Pass 2: Same-clause or same-table-row contextual pairing for remaining unconsumed amounts
+  for (const u of uppers) {
+    if (u.used) continue;
+    const uCtx = text.slice(Math.max(0, u.start - 16), u.start);
+    let bestL = null;
+    let bestDist = Infinity;
+
+    for (const l of lowers) {
+      if (l.used) continue;
+      const lCtx = text.slice(Math.max(0, l.start - 16), l.start);
+      if ((hasBudgetRole(lCtx) && hasBidRole(uCtx)) || (hasBudgetRole(uCtx) && hasBidRole(lCtx))) {
+        continue;
+      }
+
+      const leftEnd = Math.min(u.end, l.end);
+      const rightStart = Math.max(u.start, l.start);
+      const span = text.slice(leftEnd, rightStart);
+
+      if (!isTableRow) {
+        const explicitLink =
+          u.end <= l.start
+            ? /^\s*[，,、；;]?\s*(?:人民币)?(?:小写金额|小写|RMB|[¥￥])[：:\s]*/i.test(span)
+            : /^\s*[，,、；;]?\s*(?:人民币)?(?:大写金额|大写)[：:\s]*/i.test(span);
+        const crossesClause = /[，。；;！？\n]|(?<!\d),(?!\d)/.test(span);
+        if (crossesClause && !explicitLink) {
+          continue;
+        }
+      }
+
+      const dist = Math.abs(l.start - u.start);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestL = l;
+      }
+    }
+
+    if (bestL) {
+      u.used = true;
+      bestL.used = true;
+      pairs.push({ u, l: bestL });
+    } else {
+      pairs.push({ u, l: null });
+    }
+  }
+
+  return pairs;
+}
+
 function normalizeOrg(name) {
   return String(name || "")
     .replace(/[（）()\s·.,，。：:]/g, "")
@@ -626,22 +739,15 @@ export function auditSegments(segments, options = {}) {
   const detectedTotals = [];
   const detectedDurations = [];
 
-  // Minefield 1: RMB Uppercase vs Numeric Lowercase Mismatch
-  const rmbUpperRegex = /(?:人民币)?(?:大写[：:\s]*)?([零〇壹贰貳叁參肆伍陆陸柒捌玖拾佰仟万萬亿億]+[圆元][零〇壹贰貳叁參肆伍陆陸柒捌玖角分整正]*)/g;
-  const rmbLowerRegex = /(?:[¥￥]\s*[0-9][0-9,]*(?:\.[0-9]{1,4})?\s*(?:万元|元)?|小写[：:\s]*[¥￥]?\s*[0-9][0-9,]*(?:\.[0-9]{1,4})?\s*(?:万元|元)?|[0-9][0-9,]{2,}(?:\.[0-9]{1,4})?\s*(?:万元|元))/g;
-
+  // Minefield 1: RMB Uppercase vs Numeric Lowercase Mismatch (adjacent-parentheses & same-clause aware)
   for (const seg of segments) {
-    const upperMatches = [...seg.text.matchAll(rmbUpperRegex)];
-    const lowerMatches = [...seg.text.matchAll(rmbLowerRegex)];
-
-    if (upperMatches.length > 0 && lowerMatches.length > 0) {
-      const pairCount = Math.min(upperMatches.length, lowerMatches.length);
-      for (let i = 0; i < pairCount; i += 1) {
-        const upRaw = upperMatches[i][1];
-        const lowRaw = lowerMatches[i][0];
-        const upCents = parseChineseRmbToCents(upRaw);
-        const lowCents = parseNumericRmbToCents(lowRaw);
-
+    const matchedPairs = pairRmbUpperAndLower(seg.text, seg.source === "table_row");
+    for (const { u, l } of matchedPairs) {
+      const upRaw = u.raw;
+      const upCents = u.cents;
+      if (l) {
+        const lowRaw = l.raw;
+        const lowCents = l.cents;
         if (upCents !== null && lowCents !== null && upCents !== lowCents) {
           const diffCents = Math.abs(upCents - lowCents);
           issues.push({
@@ -651,12 +757,14 @@ export function auditSegments(segments, options = {}) {
             title: "人民币大写金额与同处小写金额数学换算不一致（一票否决废标项）",
             location: seg.location,
             excerpt: seg.text,
-            detail: `大写「${upRaw}」换算值为 ${formatCentsAsYuan(upCents)}，但同句/同表小写「${lowRaw.trim()}」为 ${formatCentsAsYuan(lowCents)}，两者相差 ${formatCentsAsYuan(diffCents)}。评标办法虽规定大小写不一致以大写为准，但总价偏离极易导致修正后超预算废标或算术扣分！`,
+            detail: `大写「${upRaw}」换算值为 ${formatCentsAsYuan(upCents)}，但对应小写「${lowRaw.trim()}」为 ${formatCentsAsYuan(lowCents)}，两者相差 ${formatCentsAsYuan(diffCents)}。评标办法虽规定大小写不一致以大写为准，但总价偏离极易导致修正后超预算废标或算术扣分！`,
             fixAction: `立即核对财务底表，将该处大写与小写统一修正为完全一致的精确金额。`,
           });
-        } else if (upCents !== null && /(总报价|投标总价|报价合计)/.test(seg.text)) {
+        } else if (upCents !== null && /(总报价|投标总价|报价合计|我方报价|投标报价)/.test(seg.text)) {
           detectedTotals.push({ cents: upCents, location: seg.location, raw: upRaw });
         }
+      } else if (upCents !== null && /(总报价|投标总价|报价合计|我方报价|投标报价)/.test(seg.text)) {
+        detectedTotals.push({ cents: upCents, location: seg.location, raw: upRaw });
       }
     }
   }
@@ -921,9 +1029,12 @@ export function auditSegments(segments, options = {}) {
       ? []
       : issues.slice(FREE_PREVIEW_ISSUES).map((item, idx) => ({
           index: FREE_PREVIEW_ISSUES + idx + 1,
-          code: item.code,
-          title: item.title,
-          locationHint: item.location.split(" ")[0],
+          severity: item.severity,
+          masked: true,
+          label:
+            item.severity === "fatal"
+              ? "一票否决致命废标项（已脱敏锁定 · 解锁查看具体雷区与标书原句）"
+              : "形式评审高危扣分项（已脱敏锁定 · 解锁查看具体雷区与标书原句）",
         })),
     allIssues: isPro ? issues : undefined,
   };

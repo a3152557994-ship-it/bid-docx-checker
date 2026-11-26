@@ -78,6 +78,73 @@ function parseDateMs(s) {
   return m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
 }
 
+function pairRmbAmounts(text) {
+  const upRe = /(?:人民币)?(?:大写金额|大写|合计大写|总价大写|报价大写)?[：:\s]*([零〇壹贰貳叁參肆伍陆陸柒捌玖拾佰仟万萬亿億]+[圆元][零〇壹贰貳叁參肆伍陆陸柒捌玖角分整正]*)/g;
+  const lowRe = /(?:[¥￥]\s*[0-9][0-9,]*(?:\.[0-9]{1,6})?\s*(?:万元|万|元)?|小写[：:\s]*[¥￥]?\s*[0-9][0-9,]*(?:\.[0-9]{1,6})?\s*(?:万元|万|元)?|[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,6})?\s*(?:万元|万|元)?|[0-9]+(?:\.[0-9]{1,6})?\s*(?:万元|元))/g;
+
+  const ups = [];
+  for (const m of text.matchAll(upRe)) {
+    const cents = parseCnRmbToCents(m[1]);
+    if (cents !== null) ups.push({ raw: m[1], start: m.index, end: m.index + m[0].length, cents, used: false });
+  }
+  const lows = [];
+  for (const m of text.matchAll(lowRe)) {
+    const start = m.index;
+    const end = start + m[0].length;
+    if (ups.some((u) => start < u.end && end > u.start)) continue;
+    const cents = parseNumRmbToCents(m[0]);
+    if (cents !== null) lows.push({ raw: m[0], start, end, cents, used: false });
+  }
+
+  const pairs = [];
+  // 1) 优先匹配紧邻括号：如 肆拾捌万元（480,000元） 或 ¥480,000.00（大写：肆拾捌万元整）
+  for (const u of ups) {
+    if (u.used) continue;
+    for (const l of lows) {
+      if (l.used) continue;
+      if (l.start >= u.end) {
+        const mid = text.slice(u.end, l.start);
+        const tail = text.slice(l.end, l.end + 6);
+        if (/^\s*[（(【\[]\s*(?:人民币|小写金额|小写|RMB|[：:\s])*$/i.test(mid) && /^\s*[)）】\]]/.test(tail)) {
+          u.used = true; l.used = true; pairs.push({ u, l }); break;
+        }
+      } else if (u.start >= l.end) {
+        const mid = text.slice(l.end, u.start);
+        const tail = text.slice(u.end, u.end + 6);
+        if (/^\s*[（(【\[]\s*(?:人民币|大写金额|大写|[：:\s])*$/i.test(mid) && /^\s*[)）】\]]/.test(tail)) {
+          u.used = true; l.used = true; pairs.push({ u, l }); break;
+        }
+      }
+    }
+  }
+
+  const isBudgetCtx = (s) => /(?:预算|最高限价|限价|控制价|拦标价|保证金)/.test(s);
+  const isBidCtx = (s) => /(?:投标报价|我方报价|总报价|投标总价|报价合计|报价为|总价为)/.test(s);
+
+  // 2) 同分句上下文配对（绝不把前句“预算限价”硬配给后句“投标报价”）
+  for (const u of ups) {
+    if (u.used) continue;
+    const uCtx = text.slice(Math.max(0, u.start - 16), u.start);
+    let bestL = null, bestDist = Infinity;
+    for (const l of lows) {
+      if (l.used) continue;
+      const lCtx = text.slice(Math.max(0, l.start - 16), l.start);
+      if ((isBudgetCtx(lCtx) && isBidCtx(uCtx)) || (isBudgetCtx(uCtx) && isBidCtx(lCtx))) continue;
+      const span = text.slice(Math.min(u.end, l.end), Math.max(u.start, l.start));
+      const explicitLink = u.end <= l.start
+        ? /^\s*[，,、；;]?\s*(?:人民币)?(?:小写金额|小写|RMB|[¥￥])[：:\s]*/i.test(span)
+        : /^\s*[，,、；;]?\s*(?:人民币)?(?:大写金额|大写)[：:\s]*/i.test(span);
+      const crossesClause = /[，。；;！？\n]|(?<!\d),(?!\d)/.test(span);
+      if (crossesClause && !explicitLink) continue;
+      const d = Math.abs(l.start - u.start);
+      if (d < bestDist) { bestDist = d; bestL = l; }
+    }
+    if (bestL) { u.used = true; bestL.used = true; pairs.push({ u, l: bestL }); }
+    else pairs.push({ u, l: null });
+  }
+  return pairs;
+}
+
 function normOrg(s) {
   return String(s || "").replace(/[（）()\s·.,，。：:]/g, "").trim();
 }
@@ -95,25 +162,26 @@ export async function main({ params }) {
   const segs = lines.map((t, i) => ({ loc: `第 ${i + 1} 段`, text: t }));
   const issues = [];
 
-  // M1: 人民币大小写精确分位比对
-  const upRe = /(?:人民币)?(?:大写[：:\s]*)?([零〇壹贰貳叁參肆伍陆陸柒捌玖拾佰仟万萬亿億]+[圆元][零〇壹贰貳叁參肆伍陆陸柒捌玖角分整正]*)/g;
-  const lowRe = /(?:[¥￥]\s*[0-9][0-9,]*(?:\.[0-9]{1,4})?\s*(?:万元|元)?|小写[：:\s]*[¥￥]?\s*[0-9][0-9,]*(?:\.[0-9]{1,4})?\s*(?:万元|元)?|[0-9][0-9,]{2,}(?:\.[0-9]{1,4})?\s*(?:万元|元))/g;
+  // M1: 人民币大小写精确分位比对（优先紧邻括号 + 同分句上下文配对，防预算限价与投标报价错配）
   const totals = [];
   for (const seg of segs) {
-    const ups = [...seg.text.matchAll(upRe)];
-    const lows = [...seg.text.matchAll(lowRe)];
-    for (let i = 0; i < Math.min(ups.length, lows.length); i += 1) {
-      const uc = parseCnRmbToCents(ups[i][1]);
-      const lc = parseNumRmbToCents(lows[i][0]);
-      if (uc !== null && lc !== null && uc !== lc) {
-        issues.push({
-          code: "M1", severity: "致命废标", loc: seg.loc,
-          title: `大小写金额不符（相差 ${fmtYuan(Math.abs(uc - lc))}）`,
-          detail: `大写「${ups[i][1]}」=${fmtYuan(uc)} ≠ 小写「${lows[i][0].trim()}」=${fmtYuan(lc)}`,
-          excerpt: seg.text.slice(0, 120),
-        });
-      } else if (uc !== null && /(总报价|投标总价|报价合计)/.test(seg.text)) {
-        totals.push({ cents: uc, loc: seg.loc, raw: ups[i][1] });
+    const pairs = pairRmbAmounts(seg.text);
+    for (const { u, l } of pairs) {
+      const uc = u.cents;
+      if (l) {
+        const lc = l.cents;
+        if (uc !== null && lc !== null && uc !== lc) {
+          issues.push({
+            code: "M1", severity: "致命废标", loc: seg.loc,
+            title: `大小写金额不符（相差 ${fmtYuan(Math.abs(uc - lc))}）`,
+            detail: `大写「${u.raw}」=${fmtYuan(uc)} ≠ 小写「${l.raw.trim()}」=${fmtYuan(lc)}`,
+            excerpt: seg.text.slice(0, 120),
+          });
+        } else if (uc !== null && /(总报价|投标总价|报价合计|我方报价|投标报价)/.test(seg.text)) {
+          totals.push({ cents: uc, loc: seg.loc, raw: u.raw });
+        }
+      } else if (uc !== null && /(总报价|投标总价|报价合计|我方报价|投标报价)/.test(seg.text)) {
+        totals.push({ cents: uc, loc: seg.loc, raw: u.raw });
       }
     }
   }
@@ -227,7 +295,7 @@ export async function main({ params }) {
     rubric_missing_count: rubricMissing.length,
     rubric_missing_items: isPro ? rubricMissing : rubricMissing.slice(0, 1),
     paywall_hint: !isPro && (hiddenCount > 0 || rubricMissing.length > 1)
-      ? `免费版已展示前 2 处定位；尚有 ${hiddenCount} 处隐藏废标项与 ${Math.max(0, rubricMissing.length - 1)} 项漏答评分点未展示，解锁 Pro（¥9.9 单次救急 / ¥39.9 月卡）立得完整逐段清单！`
+      ? `免费版已展示前 2 处定位；尚有 ${hiddenCount} 处隐藏废标项与 ${Math.max(0, rubricMissing.length - 1)} 项漏答评分点未展示，解锁 Pro（¥19.9 单次 / ¥59 终身买断）立得完整逐段清单！`
       : "已完成全部排雷核验。",
   };
 }

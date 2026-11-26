@@ -291,8 +291,8 @@ async function executeAudit(body, entitlement, fetcher) {
     upgradePrompt: report.isPro
       ? null
       : report.hiddenCount > 0
-        ? `当前免费体检已为您展示全部雷区计数（共 ${report.totalIssueCount} 处风险，含 ${report.fatalCount} 处一票否决致命项）及前 2 处精确定位；另有 ${report.hiddenCount} 处隐藏隐患与《开标前逐项清零核对单》需解锁完整版（¥9.9 单次救急 / ¥39.9 月卡）。`
-        : "如需导出可打印《开标前逐项清零核对单》或解锁不限次核验，可随时升级 Pro。",
+        ? `当前免费体检已为您展示全部雷区计数（共 ${report.totalIssueCount} 处风险，含 ${report.fatalCount} 处一票否决致命项）及前 2 处精确定位；另有 ${report.hiddenCount} 处隐藏隐患与《开标前逐项清零核对单》需解锁完整版（¥19.9 单次 / ¥59 终身买断）。`
+        : "如需导出可打印《开标前逐项清零核对单》或解锁不限次核验，可随时升级 Pro（¥19.9 单次 / ¥59 终身买断）。",
   };
 }
 

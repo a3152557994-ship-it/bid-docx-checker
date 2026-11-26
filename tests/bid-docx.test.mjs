@@ -356,5 +356,65 @@ test("Standalone zero-API-key Coze code node (coze-code-node.js) executes cleanl
   assert.equal(out.visible_issues.length, 2);
   assert.ok(out.hidden_count >= 2);
   assert.equal(out.rubric_missing_count, 2);
-  assert.match(out.paywall_hint, /解锁 Pro/);
+  assert.match(out.paywall_hint, /¥19\.9 单次 \/ ¥59 终身买断/);
+});
+
+test("Budget limit + bid quote in same paragraph ('预算 500,000 元，我方报价肆拾捌万元（480,000 元）') never false-alarms", async () => {
+  const { main } = await import("../release/coze-pack/coze-code-node.js");
+  const { auditPlainText } = await import("../src/docx-auditor.mjs");
+
+  const cleanMixedParagraph = [
+    "一、投标函",
+    "预算 500,000 元，我方报价肆拾捌万元（480,000 元）。",
+    "二、开标一览表",
+    "采购最高限价 500,000.00 元，我方投标总价：¥480,000.00（大写：肆拾捌万元整）。",
+    "三、法定代表人授权委托书",
+    "投标人（盖章）：浙江数智安防科技有限公司  法定代表人（签字）：王明",
+  ].join("\n");
+
+  const cozeOut = await main({
+    params: {
+      tender_text: cleanMixedParagraph,
+      bid_date: "2026-11-26",
+      is_pro: true,
+    },
+  });
+  const m1Coze = cozeOut.visible_issues.filter((i) => i.code === "M1");
+  assert.equal(m1Coze.length, 0, `Expected 0 M1 false alarms in Coze node, got: ${JSON.stringify(m1Coze)}`);
+
+  const coreOut = auditPlainText(cleanMixedParagraph, { bidDate: "2026-11-26", isPro: true });
+  const m1Core = (coreOut.allIssues || []).filter((i) => i.code === "M1");
+  assert.equal(m1Core.length, 0, `Expected 0 M1 false alarms in core auditor, got: ${JSON.stringify(m1Core)}`);
+
+  // Conversely, genuine mismatch inside adjacent parens even when preceded by budget MUST still be caught
+  const realBugWithBudget = "预算 500,000 元，我方报价肆拾捌万元（460,000 元）。";
+  const cozeBug = await main({ params: { tender_text: realBugWithBudget, is_pro: true } });
+  assert.equal(cozeBug.visible_issues.some((i) => i.code === "M1"), true);
+});
+
+test("Free preview masks Pro issue details in lockedCategoriesTeaser & unifies ¥19.9 / ¥59 pricing across all 3 ends", async () => {
+  const sampleBytes = await buildSampleTrapDocxBuffer();
+  const freeReport = await auditDocxBuffer(sampleBytes, {
+    ...DEFAULT_SAMPLE_META,
+    isPro: false,
+  });
+  assert.equal(freeReport.allIssues, undefined);
+  assert.ok(freeReport.lockedCategoriesTeaser.length >= 4);
+  for (const t of freeReport.lockedCategoriesTeaser) {
+    assert.equal(t.masked, true);
+    assert.equal("title" in t, false, "Free teaser must not leak exact Pro issue title");
+    assert.equal("code" in t, false, "Free teaser must not leak exact minefield code");
+    assert.equal("locationHint" in t, false, "Free teaser must not leak locationHint");
+    assert.equal("excerpt" in t, false, "Free teaser must not leak excerpt");
+  }
+
+  const appJs = fs.readFileSync(path.join(ROOT, "docs", "app.js"), "utf8");
+  assert.doesNotMatch(appJs, /t\.title/);
+  assert.doesNotMatch(appJs, /t\.locationHint/);
+
+  for (const rel of ["docs/index.html", "docs/app.js", "worker/index.mjs", "release/coze-pack/coze-code-node.js"]) {
+    const content = fs.readFileSync(path.join(ROOT, rel), "utf8");
+    assert.match(content, /¥19\.9 单次/);
+    assert.match(content, /¥59 终身买断/);
+  }
 });

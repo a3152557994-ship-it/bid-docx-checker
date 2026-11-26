@@ -1,7 +1,10 @@
-import { defineConfig } from "cloudflare/config";
+import { defineConfig } from "@cloudflare/config";
 
 export default defineConfig({
-  name: "bidguard-pro-api",
-  main: "./index.mjs",
-  compatibilityDate: "2026-10-01",
+  worker: {
+    name: "bidguard-pro-api",
+    compatibilityDate: "2026-10-01",
+    entrypoint: "./index.mjs",
+    workersDev: true,
+  },
 });

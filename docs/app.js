@@ -8,8 +8,9 @@ import {
 
 const STORAGE_KEY = "opc_license_bid_docx_checker_v1";
 
+let activeLicenseToken = "";
+
 const state = {
-  isPro: false,
   currentBytes: null,
   currentFileName: "",
   lastReport: null,
@@ -41,16 +42,23 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;");
 }
 
+async function isCryptographicallyUnlocked() {
+  if (!activeLicenseToken) return false;
+  const check = await verifyLicenseToken(activeLicenseToken);
+  return Boolean(check.valid);
+}
+
 async function runAudit() {
   if (!state.currentBytes) return;
 
   try {
+    const verifiedPro = await isCryptographicallyUnlocked();
     const report = await auditDocxBuffer(state.currentBytes, {
       bidDate: els.bidDate.value,
       expectedPurchaser: els.expectedPurchaser.value,
       expectedBidder: els.expectedBidder.value,
       expectedProjectName: els.expectedProjectName.value,
-      isPro: state.isPro,
+      isPro: verifiedPro,
     });
     state.lastReport = report;
     renderReport(report);
@@ -118,7 +126,7 @@ function renderReport(report) {
               🚨 警告：标书内另有 ${report.hiddenCount} 处高危废标雷区已被检出（免费版仅展示前 2 处精确定位）
             </strong>
             <div style="font-size:0.83rem;color:#475569;margin-top:0.2rem;">
-              一次废标动辄损失数万元投标保证金与差旅费！输入 <code>OPC1.</code> 激活码（¥29 单次救急 / ¥99 永久买断）立即查看全部段落原句并导出《开标前逐项清零核对单》。
+              一次废标动辄损失数万元投标保证金与差旅费！输入 <code>OPC1.</code> 激活码（<strong>¥19.9 单次 / ¥59 终身买断</strong>）立即查看全部段落原句并导出《开标前逐项清零核对单》。
             </div>
           </div>
           <a href="#proSection" class="btn btn-danger" style="text-decoration:none;">立即解锁全部 ${report.totalIssueCount} 处雷区 →</a>
@@ -128,8 +136,8 @@ function renderReport(report) {
             .map(
               (t) => `
             <div style="display:flex;justify-content:space-between;padding:0.5rem 0.75rem;background:#fff;border:1px solid #fecaca;border-radius:8px;font-size:0.84rem;">
-              <span><strong>#${t.index} [${escapeHtml(t.code)}]</strong> ${escapeHtml(t.title)}</span>
-              <span style="color:#94a3b8;">位于 ${escapeHtml(t.locationHint)} · 解锁查看精确段落原句</span>
+              <span><strong>🔒 隐藏风险 #${Number(t.index)}</strong> · ${escapeHtml(t.label || "高危废标项（已脱敏锁定）")}</span>
+              <span style="color:#94a3b8;">解锁 Pro 查看精确位置与原文</span>
             </div>
           `
             )
@@ -163,7 +171,12 @@ function renderReport(report) {
     </section>
   `;
 
-  document.getElementById("exportChecklistBtn")?.addEventListener("click", () => {
+  document.getElementById("exportChecklistBtn")?.addEventListener("click", async () => {
+    if (!(await isCryptographicallyUnlocked())) {
+      document.getElementById("proSection")?.scrollIntoView({ behavior: "smooth" });
+      els.licenseInput?.focus();
+      return;
+    }
     const exported = exportClearanceChecklist(report);
     if (!exported.allowed) {
       document.getElementById("proSection")?.scrollIntoView({ behavior: "smooth" });
@@ -205,16 +218,19 @@ async function handleUserFile(file) {
 async function tryActivate(tokenStr, silent = false) {
   const res = await verifyLicenseToken(tokenStr);
   if (res.valid) {
-    state.isPro = true;
-    localStorage.setItem(STORAGE_KEY, tokenStr.trim());
+    activeLicenseToken = tokenStr.trim();
+    localStorage.setItem(STORAGE_KEY, activeLicenseToken);
     els.proTopPill.textContent = "PRO 已激活 · 无限本地排雷";
     els.proTopPill.style.background = "#10b981";
     els.licenseStatus.style.color = "#6ee7b7";
     els.licenseStatus.textContent = `✅ 激活成功（${res.payload.e || res.payload.plan || "bid-docx-checker"}）！已解锁全部废标段落原句与《开标前逐项清零核对单》导出。`;
     await runAudit();
-  } else if (!silent) {
-    els.licenseStatus.style.color = "#fca5a5";
-    els.licenseStatus.textContent = `❌ 激活码无效：${res.message || res.reason}`;
+  } else {
+    activeLicenseToken = "";
+    if (!silent) {
+      els.licenseStatus.style.color = "#fca5a5";
+      els.licenseStatus.textContent = `❌ 激活码无效：${res.message || res.reason}`;
+    }
   }
 }
 
@@ -254,6 +270,25 @@ els.downloadSampleBtn.addEventListener("click", async () => {
 
 els.reAuditBtn.addEventListener("click", () => runAudit());
 els.activateBtn.addEventListener("click", () => tryActivate(els.licenseInput.value, false));
+
+document.getElementById("copyBidOrderBtn")?.addEventListener("click", async (e) => {
+  const sel = document.querySelector('input[name="bidPlan"]:checked');
+  const planLabel = sel?.value === "single" ? "¥19.9 单次救急卡 (7天复核)" : "¥59 终身买断版";
+  const txt = `[标书排雷王订单口令] 选购：${planLabel} (bid-docx-checker) ｜ 联系客服 QQ/邮箱：3152557994@qq.com`;
+  await navigator.clipboard.writeText(txt);
+  const btn = e.currentTarget;
+  const old = btn.textContent;
+  btn.textContent = "✅ 已复制订单口令！";
+  setTimeout(() => (btn.textContent = old), 1600);
+});
+
+document.getElementById("copyBidQqBtn")?.addEventListener("click", async (e) => {
+  await navigator.clipboard.writeText("3152557994");
+  const btn = e.currentTarget;
+  const old = btn.textContent;
+  btn.textContent = "✅ 已复制 QQ: 3152557994";
+  setTimeout(() => (btn.textContent = old), 1600);
+});
 
 const savedToken = localStorage.getItem(STORAGE_KEY);
 if (savedToken) {
