@@ -156,7 +156,7 @@ export async function main({ params }) {
   const expPurchaser = normOrg(params?.expected_purchaser);
   const expBidder = normOrg(params?.expected_bidder);
   const expProject = normOrg(params?.expected_project_name);
-  const isPro = Boolean(params?.is_pro);
+  const isPro = params?.is_pro === undefined ? true : Boolean(params.is_pro);
 
   const lines = text.replace(/\r\n?/g, "\n").split(/\n+/).map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean);
   const segs = lines.map((t, i) => ({ loc: `第 ${i + 1} 段`, text: t }));
@@ -295,7 +295,7 @@ export async function main({ params }) {
     rubric_missing_count: rubricMissing.length,
     rubric_missing_items: isPro ? rubricMissing : rubricMissing.slice(0, 1),
     paywall_hint: !isPro && (hiddenCount > 0 || rubricMissing.length > 1)
-      ? `免费版已展示前 2 处定位；尚有 ${hiddenCount} 处隐藏废标项与 ${Math.max(0, rubricMissing.length - 1)} 项漏答评分点未展示，解锁 Pro（¥19.9 单次 / ¥59 终身买断）立得完整逐段清单！`
-      : "已完成全部排雷核验。",
+      ? `预览模式已展示前 2 处定位；传入 is_pro=true（默认免费全开）即可查看全部 ${issues.length} 处明细。企业定制联系数创引擎工作室 3152557994@qq.com`
+      : "已完成全部排雷核验（100% 免费全量开放）。",
   };
 }

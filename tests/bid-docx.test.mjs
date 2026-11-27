@@ -274,7 +274,7 @@ test("BidGuard Cloudflare Worker API + MCP + SSRF protection + Coze/Alipay paywa
   assert.equal(oaJson.openapi, "3.0.1");
   assert.ok(oaJson.paths["/api/v1/audit-docx"]);
 
-  // 2. Free preview on Base64 .docx caps visibleIssues at 2 and reports hiddenCount > 0
+  // 2. Default audit-docx call is 100% free & unlocked (returns all issues + clearanceChecklistMarkdown)
   const freeRes = await worker.fetch(
     new Request("https://bidguard.example.workers.dev/api/v1/audit-docx", {
       method: "POST",
@@ -291,10 +291,9 @@ test("BidGuard Cloudflare Worker API + MCP + SSRF protection + Coze/Alipay paywa
   );
   assert.equal(freeRes.status, 200);
   const freeJson = await freeRes.json();
-  assert.equal(freeJson.tier, "free_preview");
-  assert.equal(freeJson.report.visibleIssues.length, 2);
-  assert.ok(freeJson.report.hiddenCount > 0);
-  assert.equal(freeJson.clearanceChecklistMarkdown, null);
+  assert.equal(freeJson.tier, "pro");
+  assert.equal(freeJson.report.hiddenCount, 0);
+  assert.match(freeJson.clearanceChecklistMarkdown, /开标前废标风险逐项清零核对单/);
 
   // 3. Trusted Coze/Alipay workflow header unlocks Pro checklist
   const paidRes = await worker.fetch(
@@ -356,7 +355,18 @@ test("Standalone zero-API-key Coze code node (coze-code-node.js) executes cleanl
   assert.equal(out.visible_issues.length, 2);
   assert.ok(out.hidden_count >= 2);
   assert.equal(out.rubric_missing_count, 2);
-  assert.match(out.paywall_hint, /¥19\.9 单次 \/ ¥59 终身买断/);
+  assert.match(out.paywall_hint, /3152557994@qq\.com/);
+
+  // Default (is_pro omitted) unlocks all findings for free
+  const defaultFreeOut = await main({
+    params: {
+      tender_text:
+        "一、投标函\n人民币大写：壹佰贰拾捌万元整（小写：¥1,208,000.00）\n总工期90日历天\n施工进度总工期60日历天\n联系人：XXX\n安全生产许可证有效期至2025年12月31日。",
+      bid_date: "2026-11-22",
+    },
+  });
+  assert.equal(defaultFreeOut.is_pro, true);
+  assert.equal(defaultFreeOut.hidden_count, 0);
 });
 
 test("Budget limit + bid quote in same paragraph ('预算 500,000 元，我方报价肆拾捌万元（480,000 元）') never false-alarms", async () => {
@@ -412,9 +422,9 @@ test("Free preview masks Pro issue details in lockedCategoriesTeaser & unifies �
   assert.doesNotMatch(appJs, /t\.title/);
   assert.doesNotMatch(appJs, /t\.locationHint/);
 
-  for (const rel of ["docs/index.html", "docs/app.js", "worker/index.mjs", "release/coze-pack/coze-code-node.js"]) {
-    const content = fs.readFileSync(path.join(ROOT, rel), "utf8");
-    assert.match(content, /¥19\.9 单次/);
-    assert.match(content, /¥59 终身买断/);
-  }
+  const indexHtml = fs.readFileSync(path.join(ROOT, "docs", "index.html"), "utf8");
+  assert.ok(!indexHtml.includes("OPC1."), "docs/index.html must not contain OPC1. paywall");
+  assert.ok(indexHtml.includes("100% 免费开放"), "docs/index.html must state 100% free open access");
+  assert.ok(indexHtml.includes("数创引擎工作室"), "docs/index.html must include B2B studio contact");
+  assert.ok(indexHtml.includes("3152557994@qq.com"), "docs/index.html must include official email");
 });

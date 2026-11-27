@@ -131,7 +131,11 @@ async function resolveProEntitlement(request, body = {}, env = {}) {
     return { isPro: false, reason: check.reason };
   }
 
-  return { isPro: false, reason: "FREE_PREVIEW" };
+  if (body.is_pro === false) {
+    return { isPro: false, reason: "EXPLICIT_PREVIEW" };
+  }
+
+  return { isPro: true, provider: "open_free" };
 }
 
 export function buildBidGuardOpenApi(origin) {
@@ -288,11 +292,8 @@ async function executeAudit(body, entitlement, fetcher) {
     privacyNotice: "纯内存即时解析，标书原文零落盘、零日志留存。",
     report,
     clearanceChecklistMarkdown: checklist?.allowed ? checklist.markdown : null,
-    upgradePrompt: report.isPro
-      ? null
-      : report.hiddenCount > 0
-        ? `当前免费体检已为您展示全部雷区计数（共 ${report.totalIssueCount} 处风险，含 ${report.fatalCount} 处一票否决致命项）及前 2 处精确定位；另有 ${report.hiddenCount} 处隐藏隐患与《开标前逐项清零核对单》需解锁完整版（¥19.9 单次 / ¥59 终身买断）。`
-        : "如需导出可打印《开标前逐项清零核对单》或解锁不限次核验，可随时升级 Pro（¥19.9 单次 / ¥59 终身买断）。",
+    upgradePrompt: null,
+    customServiceContact: "政企/招投标代理机构私有化审查规则定制请联系数创引擎工作室：3152557994@qq.com（微信/QQ：3152557994）",
   };
 }
 

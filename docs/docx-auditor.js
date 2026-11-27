@@ -1007,7 +1007,7 @@ export function auditSegments(segments, options = {}) {
     };
   });
 
-  const isPro = Boolean(options.isPro);
+  const isPro = options.isPro === undefined ? true : Boolean(options.isPro);
   const visibleIssues = isPro ? issues : issues.slice(0, FREE_PREVIEW_ISSUES);
   const hiddenCount = Math.max(0, issues.length - visibleIssues.length);
 
